@@ -1,5 +1,5 @@
 ARG PADDLE_DOCKER_PLATFORM=linux/amd64
-FROM --platform=${PADDLE_DOCKER_PLATFORM} docker.1ms.run/nvidia/cuda:12.0.1-cudnn8-runtime-ubuntu22.04
+FROM --platform=${PADDLE_DOCKER_PLATFORM} nvcr.io/nvidia/cuda:12.0.1-cudnn8-runtime-ubuntu22.04
 
 ENV TZ=Asia/Shanghai \
     LANG=C.UTF-8 \
