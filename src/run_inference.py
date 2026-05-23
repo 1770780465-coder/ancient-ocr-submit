@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 import json, os, cv2, torch, traceback
 from pathlib import Path
@@ -10,15 +9,14 @@ INPUT_DIR = Path(os.getenv("INPUT_DIR", "/saisdata/13/eval/images"))
 OUTPUT_FILE = Path(os.getenv("OUTPUT_FILE", "/saisresult/prediction.json"))
 MODEL_PATH = os.getenv("MODEL_PATH", "/app/models/best_recognition_model.pth")
 CHAR_DICT_PATH = os.getenv("CHAR_DICT_PATH", "/app/models/char_dict.json")
+DET_MODEL_DIR = os.getenv("DET_MODEL_DIR", "/app/models/det")
 IMG_SIZE = 64
 MIN_SCORE = float(os.getenv("MIN_SCORE", "0.0"))
 
-# 加载字符映射
 with open(CHAR_DICT_PATH, 'r', encoding='utf-8') as f:
     char_to_idx = json.load(f)
 idx_to_char = {v: k for k, v in char_to_idx.items()}
 
-# 加载分类模型
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = models.resnet18(weights=None)
 model.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
@@ -30,7 +28,7 @@ transform = transforms.Compose([
     transforms.ToPILImage(),
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])
 ])
 
 def classify_crop(crop_bgr):
@@ -69,7 +67,6 @@ def polygon_to_bbox(points, w, h):
 def infer_one(ocr_engine, img_path):
     img = cv2.imread(str(img_path))
     h, w = img.shape[:2]
-    # 只检测，不识别
     raw = ocr_engine.ocr(str(img_path), det=True, rec=False, cls=False)
     lines = normalize_ocr_lines(raw)
     detections = []
@@ -95,11 +92,10 @@ def infer_one(ocr_engine, img_path):
 def main():
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     image_paths = find_images()
-    print(f"找到 {len(image_paths)} 张图片")
+    print(f"Found {len(image_paths)} images")
 
-    # PaddleOCR 最简单初始化
-    ocr_engine = PaddleOCR(lang='ch')
-
+    # 使用本地检测模型，离线运行
+    ocr_engine = PaddleOCR(lang='ch', det_model_dir=DET_MODEL_DIR, rec=False)
     results = {}
     for idx, img_path in enumerate(image_paths, 1):
         if idx % 50 == 0:
@@ -108,12 +104,11 @@ def main():
             results[img_path.stem] = infer_one(ocr_engine, img_path)
         except Exception as e:
             print(f"Error {img_path}: {e}")
-            traceback.print_exc()
             results[img_path.stem] = []
 
     with OUTPUT_FILE.open('w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
-    print(f"结果保存至 {OUTPUT_FILE}")
+    print(f"Saved to {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     main()
