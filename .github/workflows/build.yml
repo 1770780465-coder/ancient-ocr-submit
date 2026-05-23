@@ -20,7 +20,7 @@ jobs:
       - name: Configure Docker Accelerator
         run: |
           sudo mkdir -p /etc/docker
-          echo '{"registry-mirrors": ["https://你的阿里云用户ID.mirror.aliyuncs.com"]}' | sudo tee /etc/docker/daemon.json
+          echo '{"registry-mirrors": ["https://1555443254741608.mirror.aliyuncs.com"]}' | sudo tee /etc/docker/daemon.json
           sudo service docker restart
 
       - name: Login to Alibaba Cloud Container Registry
