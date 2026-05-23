@@ -1,183 +1,119 @@
+
 #!/usr/bin/env python3
-import json
-import os
-import traceback
+import json, os, cv2, torch, traceback
 from pathlib import Path
-
 from paddleocr import PaddleOCR
-from PIL import Image
-
+from torchvision import transforms, models
+import numpy as np
 
 INPUT_DIR = Path(os.getenv("INPUT_DIR", "/saisdata/13/eval/images"))
 OUTPUT_FILE = Path(os.getenv("OUTPUT_FILE", "/saisresult/prediction.json"))
-REQUEST_USE_GPU = os.getenv("USE_GPU", "1") not in {"0", "false", "False", "no", "NO"}
-USE_ANGLE_CLS = os.getenv("USE_ANGLE_CLS", "1") not in {"0", "false", "False", "no", "NO"}
-LANG = os.getenv("PADDLEOCR_LANG", "ch")
+MODEL_PATH = os.getenv("MODEL_PATH", "/app/models/best_recognition_model.pth")
+CHAR_DICT_PATH = os.getenv("CHAR_DICT_PATH", "/app/models/char_dict.json")
+IMG_SIZE = 64
 MIN_SCORE = float(os.getenv("MIN_SCORE", "0.0"))
 
+# 加载字符映射
+with open(CHAR_DICT_PATH, 'r', encoding='utf-8') as f:
+    char_to_idx = json.load(f)
+idx_to_char = {v: k for k, v in char_to_idx.items()}
+
+# 加载分类模型
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = models.resnet18(weights=None)
+model.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+model.fc = torch.nn.Linear(512, len(char_to_idx))
+model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+model.eval().to(device)
+
+transform = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+])
+
+def classify_crop(crop_bgr):
+    img_rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
+    inp = transform(img_rgb).unsqueeze(0).to(device)
+    with torch.no_grad():
+        out = model(inp)
+        pred = out.argmax(dim=1).item()
+    return idx_to_char[pred]
 
 def find_images():
     suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
-
     if INPUT_DIR.exists():
-        return sorted(path for path in INPUT_DIR.iterdir() if path.suffix.lower() in suffixes)
-
-    fallback_root = Path("/saisdata")
-    if fallback_root.exists():
-        return sorted(path for path in fallback_root.rglob("*") if path.suffix.lower() in suffixes)
-
+        return sorted(p for p in INPUT_DIR.iterdir() if p.suffix.lower() in suffixes)
+    fallback = Path("/saisdata")
+    if fallback.exists():
+        return sorted(p for p in fallback.rglob("*") if p.suffix.lower() in suffixes)
     return []
-
 
 def normalize_ocr_lines(result):
     if not result:
         return []
-
     if isinstance(result, list) and len(result) == 1:
         return result[0] or []
-
     return result if isinstance(result, list) else []
 
+def polygon_to_bbox(points, w, h):
+    xs = [float(p[0]) for p in points]
+    ys = [float(p[1]) for p in points]
+    x1 = max(0, min(w-1, int(round(min(xs)))))
+    y1 = max(0, min(h-1, int(round(min(ys)))))
+    x2 = max(0, min(w, int(round(max(xs)))))
+    y2 = max(0, min(h, int(round(max(ys)))))
+    return [x1, y1, max(0, x2-x1), max(0, y2-y1)]
 
-def detect_use_gpu():
-    if not REQUEST_USE_GPU:
-        print("GPU disabled by USE_GPU=0")
-        return False
-
-    try:
-        import paddle
-
-        is_cuda_build = False
-        for checker in (
-            lambda: paddle.device.is_compiled_with_cuda(),
-            lambda: paddle.is_compiled_with_cuda(),
-        ):
-            try:
-                is_cuda_build = bool(checker())
-                break
-            except Exception:
-                continue
-
-        try:
-            gpu_count = int(paddle.device.cuda.device_count())
-        except Exception:
-            gpu_count = 0
-
-        print(f"Paddle CUDA build: {is_cuda_build}")
-        print(f"Visible CUDA devices: {gpu_count}")
-
-        if is_cuda_build and gpu_count > 0:
-            return True
-    except Exception as exc:
-        print(f"Warning: failed to check CUDA devices: {exc}")
-
-    print("GPU requested but no usable CUDA device was found; falling back to CPU.")
-    return False
-
-
-def polygon_to_bbox(points, image_width, image_height):
-    x_values = [float(point[0]) for point in points]
-    y_values = [float(point[1]) for point in points]
-
-    x1 = max(0, min(image_width - 1, int(round(min(x_values)))))
-    y1 = max(0, min(image_height - 1, int(round(min(y_values)))))
-    x2 = max(0, min(image_width, int(round(max(x_values)))))
-    y2 = max(0, min(image_height, int(round(max(y_values)))))
-
-    return [x1, y1, max(0, x2 - x1), max(0, y2 - y1)]
-
-
-def infer_one(ocr, image_path):
-    with Image.open(image_path) as img:
-        image_width, image_height = img.size
-
-    raw_result = ocr.ocr(str(image_path), cls=USE_ANGLE_CLS)
-    lines = normalize_ocr_lines(raw_result)
-
+def infer_one(ocr_engine, img_path):
+    img = cv2.imread(str(img_path))
+    h, w = img.shape[:2]
+    # 只检测，不识别
+    raw = ocr_engine.ocr(str(img_path), det=True, rec=False, cls=False)
+    lines = normalize_ocr_lines(raw)
     detections = []
     for line in lines:
         if not line or len(line) < 2:
             continue
-
         polygon = line[0]
-        text_score = line[1]
-        text = text_score[0] if text_score else ""
-        score = float(text_score[1]) if text_score and len(text_score) > 1 else 0.0
-
-        if not text or score < MIN_SCORE:
+        score = float(line[1][1]) if line[1] and len(line[1]) > 1 else 0.0
+        if score < MIN_SCORE:
             continue
-
-        bbox = polygon_to_bbox(polygon, image_width, image_height)
+        bbox = polygon_to_bbox(polygon, w, h)
         if bbox[2] <= 0 or bbox[3] <= 0:
             continue
-
-        detections.append({
-            "bbox": [int(v) for v in bbox],
-            "text": str(text),
-        })
-
-    detections.sort(key=lambda item: (item["bbox"][1], item["bbox"][0]))
+        x, y, bw, bh = bbox
+        crop = img[y:y+bh, x:x+bw]
+        if crop.size == 0:
+            continue
+        text = classify_crop(crop)
+        detections.append({"bbox": [int(x), int(y), int(bw), int(bh)], "text": text})
+    detections.sort(key=lambda d: (d["bbox"][1], d["bbox"][0]))
     return detections
-
 
 def main():
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-
     image_paths = find_images()
-    print(f"Input directory: {INPUT_DIR}")
-    print(f"Images found: {len(image_paths)}")
-    use_gpu = detect_use_gpu()
-    print(f"Use GPU requested: {REQUEST_USE_GPU}")
-    print(f"Use GPU actual: {use_gpu}")
-    print(f"Use angle classifier: {USE_ANGLE_CLS}")
-    print(f"Language: {LANG}")
-    print(f"Min score: {MIN_SCORE}")
+    print(f"找到 {len(image_paths)} 张图片")
+
+    # PaddleOCR 最简单初始化
+    ocr_engine = PaddleOCR(lang='ch')
 
     results = {}
-    if not image_paths:
-        print("No images found; writing an empty prediction file.")
-        with OUTPUT_FILE.open("w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-        print(f"Saved: {OUTPUT_FILE}")
-        return
-
-    try:
-        ocr = PaddleOCR(
-            use_angle_cls=USE_ANGLE_CLS,
-            lang=LANG,
-            use_gpu=use_gpu,
-            show_log=False,
-        )
-    except Exception:
-        if not use_gpu:
-            raise
-        print("Warning: failed to initialize PaddleOCR with GPU; retrying on CPU.")
-        traceback.print_exc()
-        use_gpu = False
-        ocr = PaddleOCR(
-            use_angle_cls=USE_ANGLE_CLS,
-            lang=LANG,
-            use_gpu=False,
-            show_log=False,
-        )
-
-    for index, image_path in enumerate(image_paths, start=1):
-        if index == 1 or index % 50 == 0:
-            print(f"[{index}/{len(image_paths)}] {image_path.name}")
-
-        image_id = image_path.stem
+    for idx, img_path in enumerate(image_paths, 1):
+        if idx % 50 == 0:
+            print(f"[{idx}/{len(image_paths)}] {img_path.name}")
         try:
-            results[image_id] = infer_one(ocr, image_path)
-        except Exception as exc:
-            print(f"Warning: failed to process {image_path}: {exc}")
+            results[img_path.stem] = infer_one(ocr_engine, img_path)
+        except Exception as e:
+            print(f"Error {img_path}: {e}")
             traceback.print_exc()
-            results[image_id] = []
+            results[img_path.stem] = []
 
-    with OUTPUT_FILE.open("w", encoding="utf-8") as f:
+    with OUTPUT_FILE.open('w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
-
-    print(f"Saved: {OUTPUT_FILE}")
-
+    print(f"结果保存至 {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     main()

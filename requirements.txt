@@ -1,3 +1,15 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a87543e10ecdba617249d0e3f52b6906b9c4212226122f5bbf9d086520c7ea79
-size 102
+numpy>=1.26.4,<2.0.0
+opencv-python-headless>=4.8.1.78
+torch>=2.0.0
+torchvision>=0.15.0
+Pillow
+scikit-image>=0.21.0
+shapely
+pyclipper
+lmdb
+tqdm
+visualdl
+python-docx
+imgaug
+attrdict
+pyyaml
