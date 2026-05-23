@@ -28,4 +28,4 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: registry.cn-hangzhou.aliyuncs.com/你的命名空间/你的仓库名:v1.0
+          tags: registry.cn-hangzhou.aliyuncs.com/candy_0/ancient-ocr:v1.0
