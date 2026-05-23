@@ -1,0 +1,43 @@
+# ---- 基础镜像：使用官方CUDA环境 ----
+FROM nvcr.io/nvidia/cuda:12.0.1-cudnn8-runtime-ubuntu22.04
+
+ENV TZ=Asia/Shanghai \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+RUN mkdir -p /app /saisresult
+
+# ---- 第1步：安装Python和系统库 ----
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-dev python3-venv \
+        tini bash wget ca-certificates \
+        libcublas-12-0 \
+        libgomp1 libglib2.0-0 libgl1 libsm6 libxrender1 libxext6 \
+        libxcb1 libxcb-render0 libxcb-shape0 libxcb-xfixes0 libxcb-shm0 \
+        libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+        libxcb-render-util0 libxcb-sync1 libxcb-xinerama0 libxcb-xkb1 libx11-xcb1 \
+        build-essential swig && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# ---- 第2步：一次性安装所有Python依赖（关键步骤）----
+# 先复制requirements文件，然后在一个RUN命令里完成所有安装
+# 这样如果后续代码有变动，前面这层依赖层可以被缓存，不用重新下载
+COPY requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip && \
+    pip install paddlepaddle-gpu==2.6.1.post120 -f https://www.paddlepaddle.org.cn/whl/linux/cudnnin/stable.html && \
+    pip install --no-cache-dir --prefer-binary -r /app/requirements.txt && \
+    pip install --no-cache-dir --no-deps paddleocr==2.7.0.3
+
+# ---- 第3步：复制代码和模型（变动频繁的部分放在最后）----
+COPY models/ /app/models/
+COPY src/ /app/src/
+COPY run.sh /app/run.sh
+RUN chmod +x /app/run.sh
+
+ENTRYPOINT ["/usr/bin/tini", "--", "bash", "/app/run.sh"]
