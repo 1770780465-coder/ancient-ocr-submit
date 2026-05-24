@@ -71,8 +71,6 @@ RUN pip install --no-cache-dir --no-deps paddleocr==2.7.0.3
 # 验证
 RUN python3 -c "import paddle; print('Paddle:', paddle.__version__); import paddleocr; print('PaddleOCR OK')"
 
-COPY src/warmup_models.py /app/src/warmup_models.py
-RUN python3 /app/src/warmup_models.py
 
 COPY models/ /app/models/
 COPY src/ /app/src/
