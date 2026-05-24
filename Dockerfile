@@ -63,7 +63,7 @@ RUN pip install paddlepaddle-gpu==2.6.1.post120 -f https://www.paddlepaddle.org.
 
 # 复制 requirements.txt 并安装基础依赖
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --prefer-binary -r /app/requirements.txt
+RUN pip install --no-cache-dir --prefer-binary --default-timeout=300 --retries 10 -r /app/requirements.txt
 
 # 单独安装 paddleocr（跳过 PyMuPDF）
 RUN pip install --no-cache-dir --no-deps paddleocr==2.7.0.3

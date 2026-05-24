@@ -95,7 +95,7 @@ def main():
     print(f"Found {len(image_paths)} images")
 
     # 使用本地检测模型，离线运行
-    ocr_engine = PaddleOCR(lang='ch', det_model_dir=DET_MODEL_DIR, rec=False)
+    ocr_engine = PaddleOCR(lang='ch', det_model_dir=DET_MODEL_DIR)
     results = {}
     for idx, img_path in enumerate(image_paths, 1):
         if idx % 50 == 0:
