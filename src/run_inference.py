@@ -49,11 +49,16 @@ def find_images():
     return []
 
 def normalize_ocr_lines(result):
-    if not result:
+    """安全提取检测线条，避免 NumPy 数组的布尔歧义"""
+    if result is None:
         return []
-    if isinstance(result, list) and len(result) == 1:
-        return result[0] or []
-    return result if isinstance(result, list) else []
+    # 转换为普通列表
+    try:
+        if isinstance(result, list) and len(result) > 0:
+            return [list(line) for line in result[0] if line is not None and len(line) >= 2]
+    except Exception:
+        pass
+    return []
 
 def polygon_to_bbox(points, w, h):
     xs = [float(p[0]) for p in points]
@@ -71,10 +76,10 @@ def infer_one(ocr_engine, img_path):
     lines = normalize_ocr_lines(raw)
     detections = []
     for line in lines:
-        if not line or len(line) < 2:
+        if len(line) < 2:
             continue
         polygon = line[0]
-        score = float(line[1][1]) if line[1] and len(line[1]) > 1 else 0.0
+        score = float(line[1][1]) if isinstance(line[1], (list, tuple)) and len(line[1]) > 1 else 0.0
         if score < MIN_SCORE:
             continue
         bbox = polygon_to_bbox(polygon, w, h)
@@ -94,7 +99,6 @@ def main():
     image_paths = find_images()
     print(f"Found {len(image_paths)} images")
 
-    # 使用本地检测模型，离线运行
     ocr_engine = PaddleOCR(lang='ch', det_model_dir=DET_MODEL_DIR)
     results = {}
     for idx, img_path in enumerate(image_paths, 1):
@@ -104,6 +108,7 @@ def main():
             results[img_path.stem] = infer_one(ocr_engine, img_path)
         except Exception as e:
             print(f"Error {img_path}: {e}")
+            traceback.print_exc()
             results[img_path.stem] = []
 
     with OUTPUT_FILE.open('w', encoding='utf-8') as f:
