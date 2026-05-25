@@ -49,10 +49,8 @@ def find_images():
     return []
 
 def normalize_ocr_lines(result):
-    """安全提取检测线条，避免 NumPy 数组的布尔歧义"""
     if result is None:
         return []
-    # 转换为普通列表
     try:
         if isinstance(result, list) and len(result) > 0:
             return [list(line) for line in result[0] if line is not None and len(line) >= 2]
@@ -60,9 +58,10 @@ def normalize_ocr_lines(result):
         pass
     return []
 
-def polygon_to_bbox(points, w, h):
-    xs = [float(p[0]) for p in points]
-    ys = [float(p[1]) for p in points]
+def polygon_to_bbox(polygon, w, h):
+    """接收统一格式的 polygon（四点嵌套列表）并转换为 [x, y, w, h]"""
+    xs = [float(p[0]) for p in polygon]
+    ys = [float(p[1]) for p in polygon]
     x1 = max(0, min(w-1, int(round(min(xs)))))
     y1 = max(0, min(h-1, int(round(min(ys)))))
     x2 = max(0, min(w, int(round(max(xs)))))
@@ -78,10 +77,24 @@ def infer_one(ocr_engine, img_path):
     for line in lines:
         if len(line) < 2:
             continue
-        polygon = line[0]
+        polygon = line[0]          # 可能是嵌套列表，也可能是平坦列表
         score = float(line[1][1]) if isinstance(line[1], (list, tuple)) and len(line[1]) > 1 else 0.0
         if score < MIN_SCORE:
             continue
+
+        # ---- 统一坐标格式为四点嵌套列表 ----
+        if isinstance(polygon, (list, np.ndarray)) and len(polygon) > 0:
+            # 如果第一个元素是数字，说明是平坦列表 [x1, y1, x2, y2] 或类似
+            if isinstance(polygon[0], (int, float, np.number)):
+                if len(polygon) == 4:
+                    x1, y1, x2, y2 = map(float, polygon)
+                    polygon = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+                else:
+                    continue   # 无法识别的格式，跳过
+            # 否则保持原样（已经是点列表）
+        else:
+            continue
+
         bbox = polygon_to_bbox(polygon, w, h)
         if bbox[2] <= 0 or bbox[3] <= 0:
             continue
