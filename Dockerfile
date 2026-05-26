@@ -66,7 +66,6 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --prefer-binary --default-timeout=300 --retries 10 -r /app/requirements.txt
 
 # 单独安装 paddleocr（跳过 PyMuPDF）
-RUN pip install --no-cache-dir --no-deps paddleocr==2.7.0.3
 # 修复 PaddleOCR 内部的 NumPy 布尔歧义 bug
 RUN find /usr/local/lib/python3.*/dist-packages/paddleocr -name "paddleocr.py" -exec sed -i "s/if not dt_boxes:/if dt_boxes is None or len(dt_boxes) == 0:/g" {} \;
 
