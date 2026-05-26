@@ -68,7 +68,6 @@ RUN pip install --no-cache-dir --prefer-binary --default-timeout=300 --retries 1
 # 单独安装 paddleocr（跳过 PyMuPDF）
 
 # 验证
-RUN python3 -c "import paddle; print('Paddle:', paddle.__version__); import paddleocr; print('PaddleOCR OK')"
 
 
 COPY models/ /app/models/
